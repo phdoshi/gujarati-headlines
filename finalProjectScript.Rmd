@@ -1,0 +1,156 @@
+---
+title: "Final project"
+output: html_notebook
+---
+
+```{r}
+#read data in
+library(readxl)
+library(janitor)
+library(tidyverse)
+#clean data
+averageVals <- read_excel("Average Headlines.xlsx")
+averageVals <- clean_names(averageVals)
+
+#read data in
+words <- read_excel("words.xlsx")
+library(lsr)
+library(pwr)
+library(ggplot2)
+```
+
+```{r}
+#check sample size estimates for necessary power and then true power
+pwr.chisq.test(w = 0.4, N = NULL, df = 2, sig.level = 0.05, power = 0.8)
+pwr.chisq.test(w = 0.4, N = 189, df = 2, sig.level = 0.05, power = NULL)
+pwr.anova.test(k = 3, n = NULL, f = 0.4, sig.level= 0.05, power = 0.8)
+pwr.anova.test(k = 3, n = 97, f = 0.4, sig.level = 0.05, power = NULL)
+```
+
+
+
+```{r}
+#check if data are normal
+
+ggplot(data = averageVals, aes(x = average)) + facet_wrap(~label) + geom_histogram() + labs(title = 'Average Borrowed Words per Headline Category', x = 'Average Words')
+ggplot(data = averageVals, aes(x = label, y = average)) + geom_boxplot(aes(fill = label)) + labs(title = 'Average num transliterated words per headline type', x = 'Headline Type', y = 'Average Words')
+business <- filter(averageVals, label == 'business')
+tech <- filter(averageVals, label == 'tech')
+entertainment <- filter(averageVals, label == 'entertainment')
+shapiro.test(business$average)
+shapiro.test(tech$average)
+shapiro.test(entertainment$average)
+
+qqnorm(business$average)
+qqline(business$average)
+qqnorm(tech$average)
+qqline(tech$average)
+qqnorm(entertainment$average)
+qqline(entertainment$average)
+```
+
+```{r}
+#data not normal --> try removing outliers
+findOutlier <- function(df, col1, col2) {
+  ##Calculate the SD - can adjust to 3.5 SD
+  sds <- sd(df[[col1]])*2.5
+  ##Calculate the mean
+  m <- mean(df[[col1]])
+  ##Identify the cells with value greater than cutoff*sd
+  df[[col2]] <- ifelse(df[[col1]] > m+sds, c("Remove"),
+                       ifelse(df[[col1]] < m-sds, c("Remove"), c("Keep")))
+  df
+}
+
+
+averageVals <- findOutlier(averageVals, 'average', 'outliers')
+averageValsMod <- filter(averageVals, outliers != 'Remove')
+
+
+ggplot(data = averageValsMod, aes(x = average)) + facet_wrap(~label) + geom_histogram()
+ggplot(data = averageValsMod, aes(y = average)) + facet_wrap(~label) + geom_boxplot()
+business <- filter(averageValsMod, label == 'business')
+tech <- filter(averageValsMod, label == 'tech')
+entertainment <- filter(averageValsMod, label == 'entertainment')
+shapiro.test(business$average)
+shapiro.test(tech$average)
+shapiro.test(entertainment$average)
+
+qqnorm(business$average)
+qqline(business$average)
+qqnorm(tech$average)
+qqline(tech$average)
+qqnorm(entertainment$average)
+qqline(entertainment$average)
+```
+
+```{r}
+#removing outliers does not help --> try square root / log transformation
+averageVals$sqrtAverage <- sqrt(averageVals$average)
+
+
+ggplot(data = averageVals, aes(x = sqrtAverage)) + facet_wrap(~label) + geom_histogram()
+ggplot(data = averageVals, aes(y = sqrtAverage)) + facet_wrap(~label) + geom_boxplot()
+business <- filter(averageVals, label == 'business')
+tech <- filter(averageVals, label == 'tech')
+entertainment <- filter(averageVals, label == 'entertainment')
+shapiro.test(business$sqrtAverage)
+shapiro.test(tech$sqrtAverage)
+shapiro.test(entertainment$sqrtAverage)
+
+qqnorm(business$sqrtAverage)
+qqline(business$sqrtAverage)
+qqnorm(tech$sqrtAverage)
+qqline(tech$sqrtAverage)
+qqnorm(entertainment$sqrtAverage)
+qqline(entertainment$sqrtAverage)
+
+#for log, remove zeroes to avoid getting infinite values
+averageNoZero <- filter(averageVals, average != 0)
+averageNoZero$logAverage <- log(averageNoZero$average)
+
+ggplot(data = averageNoZero, aes(x = logAverage)) + facet_wrap(~label) + geom_histogram()
+ggplot(data = averageNoZero, aes(y = logAverage)) + facet_wrap(~label) + geom_boxplot()
+business <- filter(averageNoZero, label == 'business')
+tech <- filter(averageNoZero, label == 'tech')
+entertainment <- filter(averageNoZero, label == 'entertainment')
+
+shapiro.test(business$logAverage)
+shapiro.test(tech$logAverage)
+shapiro.test(entertainment$logAverage)
+
+qqnorm(business$logAverage)
+qqline(business$logAverage)
+qqnorm(tech$logAverage)
+qqline(tech$logAverage)
+qqnorm(entertainment$logAverage)
+qqline(entertainment$logAverage)
+```
+
+```{r}
+#data are still not normal --> use k-wallis
+kruskal.test(average~label, averageVals)
+require(dunn.test)
+#conduct post-hoc test
+dunn.test(averageVals$average, averageVals$label, method = "bonferroni")
+#get descriptive statistics
+summarise(group_by(averageVals, label), mean = mean(average), sd = sd(average))
+```
+
+```{r}
+#research question 2
+#get contingency table
+table(words$pos, words$label)
+
+#modify to get 10+ in each cell
+words$posMod <- as.factor(ifelse(words$pos == 'Noun' | words$pos == 'Proper Noun', 'Noun', ifelse(words$pos == 'Adjective' | words$pos == 'Verb' | words$pos == 'Pronoun', 'Other', NA)))
+
+#updated contingency table
+table(words$posMod, words$label)
+
+#run chisq test
+chisq.test(table(words$posMod, words$label))
+
+#get effect size
+cramersV(table(words$posMod, words$label))
+```
